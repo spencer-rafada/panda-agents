@@ -4,6 +4,7 @@ import { getCachedSprite, getOutlineSprite } from '../sprites/spriteCache.js'
 import { getCharacterSprites, BUBBLE_PERMISSION_SPRITE, BUBBLE_WAITING_SPRITE } from '../sprites/spriteData.js'
 import { getCharacterSprite } from './characters.js'
 import { getColorizedFloorSprite, hasFloorSprites, WALL_COLOR } from '../floorTiles.js'
+import { hasWallSprites, getWallSprite } from '../wallTiles.js'
 
 // ── Render functions ────────────────────────────────────────────
 
@@ -18,7 +19,9 @@ export function renderTileGrid(
 ): void {
   const s = TILE_SIZE * zoom
   const useSpriteFloors = hasFloorSprites()
+  const useWallSprites = hasWallSprites()
 
+  // Pass 1: floor tiles + wall base color
   for (let r = 0; r < MAP_ROWS; r++) {
     for (let c = 0; c < MAP_COLS; c++) {
       const tile = tileMap[r][c]
@@ -36,6 +39,19 @@ export function renderTileGrid(
       const sprite = getColorizedFloorSprite(tile, color)
       const cached = getCachedSprite(sprite, zoom)
       ctx.drawImage(cached, offsetX + c * s, offsetY + r * s)
+    }
+  }
+
+  // Pass 2: wall sprites in row order (tall sprites extend upward from tile bottom)
+  if (useWallSprites) {
+    for (let r = 0; r < MAP_ROWS; r++) {
+      for (let c = 0; c < MAP_COLS; c++) {
+        if (tileMap[r][c] !== TileType.WALL) continue
+        const wallInfo = getWallSprite(c, r, tileMap)
+        if (!wallInfo) continue
+        const cached = getCachedSprite(wallInfo.sprite, zoom)
+        ctx.drawImage(cached, offsetX + c * s, offsetY + r * s + wallInfo.offsetY * zoom)
+      }
     }
   }
 }

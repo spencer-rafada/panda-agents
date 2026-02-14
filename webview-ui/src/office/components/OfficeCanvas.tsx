@@ -7,6 +7,7 @@ import { renderFrame } from '../engine/renderer.js'
 import { TILE_SIZE, MAP_COLS, MAP_ROWS, EditTool } from '../types.js'
 import { getCatalogEntry, isRotatable } from '../layout/furnitureCatalog.js'
 import { canPlaceFurniture } from '../editor/editorActions.js'
+import { getColorizedSprite } from '../colorize.js'
 import { vscode } from '../../vscodeApi.js'
 
 interface OfficeCanvasProps {
@@ -93,7 +94,17 @@ export function OfficeCanvas({ officeState, onHover, onClick, isEditMode, editor
           if (editorState.activeTool === EditTool.FURNITURE_PLACE && editorState.ghostCol >= 0) {
             const entry = getCatalogEntry(editorState.selectedFurnitureType)
             if (entry) {
-              editorRender.ghostSprite = entry.sprite
+              // Colorize ghost if furniture is colorEditable
+              if (entry.colorEditable) {
+                const fc = editorState.furnitureColor
+                editorRender.ghostSprite = getColorizedSprite(
+                  `ghost-${entry.type}-${fc.h}-${fc.s}-${fc.b}-${fc.c}`,
+                  entry.sprite,
+                  fc,
+                )
+              } else {
+                editorRender.ghostSprite = entry.sprite
+              }
               editorRender.ghostValid = canPlaceFurniture(
                 officeState.getLayout(),
                 editorState.selectedFurnitureType,
@@ -298,6 +309,15 @@ export function OfficeCanvas({ officeState, onHover, onClick, isEditMode, editor
             const pos = screenToWorld(e.clientX, e.clientY)
             if (pos && (hitTestDeleteButton(pos.deviceX, pos.deviceY) || hitTestRotateButton(pos.deviceX, pos.deviceY))) {
               canvas.style.cursor = 'pointer'
+            } else if (editorState.activeTool === EditTool.FURNITURE_PICK && tile) {
+              // Pick mode: show pointer over furniture, crosshair elsewhere
+              const layout = officeState.getLayout()
+              const hitFurniture = layout.furniture.find((f) => {
+                const entry = getCatalogEntry(f.type)
+                if (!entry) return false
+                return tile.col >= f.col && tile.col < f.col + entry.footprintW && tile.row >= f.row && tile.row < f.row + entry.footprintH
+              })
+              canvas.style.cursor = hitFurniture ? 'pointer' : 'crosshair'
             } else if ((editorState.activeTool === EditTool.SELECT || (editorState.activeTool === EditTool.FURNITURE_PLACE && editorState.selectedFurnitureType === '')) && tile) {
               // Check if hovering over furniture
               const layout = officeState.getLayout()
@@ -388,11 +408,15 @@ export function OfficeCanvas({ officeState, onHover, onClick, isEditMode, editor
         (editorState.activeTool === EditTool.FURNITURE_PLACE && editorState.selectedFurnitureType === '')
       if (actAsSelect && tile) {
         const layout = officeState.getLayout()
-        const hitFurniture = layout.furniture.find((f) => {
+        // Find all furniture at clicked tile, prefer surface items (on top of desks)
+        let hitFurniture = null as typeof layout.furniture[0] | null
+        for (const f of layout.furniture) {
           const entry = getCatalogEntry(f.type)
-          if (!entry) return false
-          return tile.col >= f.col && tile.col < f.col + entry.footprintW && tile.row >= f.row && tile.row < f.row + entry.footprintH
-        })
+          if (!entry) continue
+          if (tile.col >= f.col && tile.col < f.col + entry.footprintW && tile.row >= f.row && tile.row < f.row + entry.footprintH) {
+            if (!hitFurniture || entry.canPlaceOnSurfaces) hitFurniture = f
+          }
+        }
         if (hitFurniture) {
           // Start drag — record offset from furniture's top-left
           editorState.startDrag(

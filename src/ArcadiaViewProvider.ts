@@ -12,7 +12,7 @@ import {
 	getProjectDirPath,
 } from './agentManager.js';
 import { ensureProjectScan } from './fileWatcher.js';
-import { loadFurnitureAssets, sendAssetsToWebview, loadFloorTiles, sendFloorTilesToWebview } from './assetLoader.js';
+import { loadFurnitureAssets, sendAssetsToWebview, loadFloorTiles, sendFloorTilesToWebview, loadWallTiles, sendWallTilesToWebview } from './assetLoader.js';
 
 export class ArcadiaViewProvider implements vscode.WebviewViewProvider {
 	nextAgentId = { current: 1 };
@@ -134,6 +134,13 @@ export class ArcadiaViewProvider implements vscode.WebviewViewProvider {
 								sendFloorTilesToWebview(this.webview, floorTiles);
 							}
 
+							// Load wall tiles
+							const wallTiles = await loadWallTiles(assetsRoot);
+							if (wallTiles && this.webview) {
+								console.log('[Extension] Wall tiles loaded, sending to webview');
+								sendWallTilesToWebview(this.webview, wallTiles);
+							}
+
 							const assets = await loadFurnitureAssets(assetsRoot);
 							if (assets && this.webview) {
 								console.log('[Extension] ✅ Assets loaded, sending to webview');
@@ -149,15 +156,20 @@ export class ArcadiaViewProvider implements vscode.WebviewViewProvider {
 						}
 					})();
 				} else {
-					// No project dir — still try to load floor tiles, then send saved layout
+					// No project dir — still try to load floor/wall tiles, then send saved layout
 					(async () => {
 						try {
 							const ep = this.extensionUri.fsPath;
 							const bundled = path.join(ep, 'dist', 'assets');
 							if (fs.existsSync(bundled)) {
-								const ft = await loadFloorTiles(path.join(ep, 'dist'));
+								const distRoot = path.join(ep, 'dist');
+								const ft = await loadFloorTiles(distRoot);
 								if (ft && this.webview) {
 									sendFloorTilesToWebview(this.webview, ft);
+								}
+								const wt = await loadWallTiles(distRoot);
+								if (wt && this.webview) {
+									sendWallTilesToWebview(this.webview, wt);
 								}
 							}
 						} catch { /* ignore */ }

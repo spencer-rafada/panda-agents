@@ -161,7 +161,8 @@
   <span class="sep"></span>
   <button class="add-btn" id="btn-add-asset">+ Add Asset</button>
   <span class="sep"></span>
-  <button class="primary" id="btn-export">Export</button>
+  <button class="primary" id="btn-save-file" style="display:none">Save</button>
+  <button id="btn-save-as">Save As</button>
 </div>
 
 <!-- Main 3-panel layout -->
@@ -428,9 +429,9 @@ document.getElementById('btn-load-json').onclick = async () => {
       })
       const file = await handle.getFile()
       const text = await file.text()
-      loadJsonData(JSON.parse(text))
       jsonFileHandle = handle
-      statusMsg.textContent = '\u2713 Loaded ' + data.assets.length + ' assets from ' + file.name + ' (linked for direct save)'
+      loadJsonData(JSON.parse(text))
+      statusMsg.textContent = '\u2713 Loaded ' + data.assets.length + ' assets from ' + file.name
       return
     } catch (err) {
       if (err.name === 'AbortError') return // user cancelled
@@ -487,17 +488,22 @@ function loadJsonData(parsed) {
   renderPreview()
   updateCounts()
   scheduleSave()
-  updateExportButton()
+  updateSaveButton()
 }
 
-function updateExportButton() {
-  const btn = document.getElementById('btn-export')
-  if (jsonFileHandle) {
-    btn.textContent = 'Save to ' + jsonFileHandle.name
-    btn.title = 'Write directly to ' + jsonFileHandle.name + ' (no download dialog)'
+function updateSaveButton() {
+  const btn = document.getElementById('btn-save-file')
+  if (!data) {
+    btn.style.display = 'none'
   } else {
-    btn.textContent = 'Export'
-    btn.title = 'Download as tileset-metadata-final.json'
+    btn.style.display = ''
+    if (jsonFileHandle) {
+      btn.textContent = 'Save'
+      btn.title = 'Write directly to ' + jsonFileHandle.name
+    } else {
+      btn.textContent = 'Save'
+      btn.title = 'Download as tileset-metadata-final.json'
+    }
   }
 }
 
@@ -807,33 +813,86 @@ document.getElementById('btn-reset').onclick = () => {
   statusMsg.textContent = 'Reset to last saved'
 }
 
-document.getElementById('btn-export').onclick = async () => {
-  if (!data) return
-
-  // Include ALL assets (discarded ones keep discard:true so they can be recovered)
-  const output = {
+function buildOutputJson() {
+  return JSON.stringify({
     version: data.version || 1,
     timestamp: new Date().toISOString(),
     sourceFile: data.sourceFile,
     tileset: data.tileset,
     backgroundColor: data.backgroundColor,
     assets: data.assets
+  }, null, 2)
+}
+
+function buildSummary() {
+  const approved = data.assets.filter(x => !x.discard).length
+  return approved + ' approved + ' + (data.assets.length - approved) + ' discarded assets'
+}
+
+// Save — write to file handle, acquiring one on first use if needed
+document.getElementById('btn-save-file').onclick = async () => {
+  if (!data) return
+  const json = buildOutputJson()
+
+  // Acquire a handle if we don't have one yet
+  if (!jsonFileHandle && window.showSaveFilePicker) {
+    try {
+      jsonFileHandle = await window.showSaveFilePicker({
+        suggestedName: 'tileset-metadata-final.json',
+        types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }],
+      })
+      updateSaveButton()
+    } catch (err) {
+      if (err.name === 'AbortError') return
+      console.warn('showSaveFilePicker failed:', err)
+    }
   }
 
-  const json = JSON.stringify(output, null, 2)
-  const approved = data.assets.filter(x => !x.discard).length
-  const summary = approved + ' approved + ' + (data.assets.length - approved) + ' discarded assets'
-
-  // Try writing directly to the loaded file handle
   if (jsonFileHandle) {
     try {
       const writable = await jsonFileHandle.createWritable()
       await writable.write(json)
       await writable.close()
-      statusMsg.textContent = '\u2713 Saved to ' + jsonFileHandle.name + ' \u2014 ' + summary
+      statusMsg.textContent = '\u2713 Saved to ' + jsonFileHandle.name + ' \u2014 ' + buildSummary()
       return
     } catch (err) {
       console.warn('Direct save failed, falling back to download:', err)
+    }
+  }
+
+  // Fallback: browser download (Firefox etc.)
+  const blob = new Blob([json], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'tileset-metadata-final.json'
+  a.click()
+  URL.revokeObjectURL(url)
+  statusMsg.textContent = '\u2713 Downloaded tileset-metadata-final.json \u2014 ' + buildSummary()
+}
+
+// Save As — open file picker (or fallback to download)
+document.getElementById('btn-save-as').onclick = async () => {
+  if (!data) return
+  const json = buildOutputJson()
+
+  // Try File System Access API save picker
+  if (window.showSaveFilePicker) {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: 'tileset-metadata-final.json',
+        types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }],
+      })
+      const writable = await handle.createWritable()
+      await writable.write(json)
+      await writable.close()
+      jsonFileHandle = handle
+      updateSaveButton()
+      statusMsg.textContent = '\u2713 Saved to ' + handle.name + ' \u2014 ' + buildSummary()
+      return
+    } catch (err) {
+      if (err.name === 'AbortError') return // user cancelled
+      console.warn('showSaveFilePicker failed, falling back to download:', err)
     }
   }
 
@@ -845,8 +904,7 @@ document.getElementById('btn-export').onclick = async () => {
   a.download = 'tileset-metadata-final.json'
   a.click()
   URL.revokeObjectURL(url)
-
-  statusMsg.textContent = '\u2713 Exported ' + summary
+  statusMsg.textContent = '\u2713 Downloaded \u2014 ' + buildSummary()
 }
 
 // ════════════════════════════════════════════════════════════════════════

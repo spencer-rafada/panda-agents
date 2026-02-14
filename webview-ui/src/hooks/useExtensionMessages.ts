@@ -5,6 +5,7 @@ import { extractToolName } from '../office/toolUtils.js'
 import { migrateLayoutColors } from '../office/layout/layoutSerializer.js'
 import { buildDynamicCatalog } from '../office/layout/furnitureCatalog.js'
 import { setFloorSprites } from '../office/floorTiles.js'
+import { setWallSprites } from '../office/wallTiles.js'
 import { vscode } from '../vscodeApi.js'
 
 export interface SubagentCharacter {
@@ -291,6 +292,10 @@ export function useExtensionMessages(
         const sprites = msg.sprites as string[][][]
         console.log(`[Webview] Received ${sprites.length} floor tile patterns`)
         setFloorSprites(sprites)
+      } else if (msg.type === 'wallTilesLoaded') {
+        const sprites = msg.sprites as string[][][]
+        console.log(`[Webview] Received ${sprites.length} wall tile sprites`)
+        setWallSprites(sprites)
       } else if (msg.type === 'furnitureAssetsLoaded') {
         try {
           const catalog = msg.catalog as FurnitureAsset[]

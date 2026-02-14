@@ -1,6 +1,7 @@
 import { TileType, FurnitureType, MAP_COLS, MAP_ROWS, TILE_SIZE, Direction } from '../types.js'
 import type { TileType as TileTypeVal, OfficeLayout, PlacedFurniture, Seat, FurnitureInstance, FloorColor } from '../types.js'
 import { getCatalogEntry } from './furnitureCatalog.js'
+import { getColorizedSprite } from '../colorize.js'
 
 /** Convert flat tile array from layout into 2D grid */
 export function layoutToTileMap(layout: OfficeLayout): TileTypeVal[][] {
@@ -51,7 +52,14 @@ export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): Furnit
       }
     }
 
-    instances.push({ sprite: entry.sprite, x, y, zY })
+    // Colorize sprite if this furniture has a color override
+    let sprite = entry.sprite
+    if (item.color) {
+      const { h, s, b: bv, c: cv } = item.color
+      sprite = getColorizedSprite(`furn-${item.type}-${h}-${s}-${bv}-${cv}`, entry.sprite, item.color)
+    }
+
+    instances.push({ sprite, x, y, zY })
   }
   return instances
 }

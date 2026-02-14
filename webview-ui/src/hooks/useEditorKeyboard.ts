@@ -17,7 +17,10 @@ export function useEditorKeyboard(
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         // Multi-stage Esc: deselect item → close tool → deselect placed → close editor
-        if (editorState.activeTool === EditTool.FURNITURE_PLACE && editorState.selectedFurnitureType !== '') {
+        if (editorState.activeTool === EditTool.FURNITURE_PICK) {
+          editorState.activeTool = EditTool.FURNITURE_PLACE
+          editorState.clearGhost()
+        } else if (editorState.activeTool === EditTool.FURNITURE_PLACE && editorState.selectedFurnitureType !== '') {
           editorState.selectedFurnitureType = ''
           editorState.clearGhost()
         } else if (editorState.activeTool !== EditTool.SELECT) {

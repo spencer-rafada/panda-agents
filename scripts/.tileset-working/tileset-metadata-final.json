@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "timestamp": "2026-02-11T17:38:52.874Z",
+  "timestamp": "2026-02-14T17:53:44.465Z",
   "sourceFile": "assets/office_tileset_16x16.png",
   "tileset": {
     "width": 256,
@@ -3897,14 +3897,14 @@
       "label": "Small Plant",
       "category": "decor",
       "footprintW": 1,
-      "footprintH": 1,
+      "footprintH": 2,
       "isDesk": false,
       "colorEditable": false,
       "discard": false,
       "partOfGroup": false,
       "groupId": "PLANT",
       "canPlaceOnSurfaces": true,
-      "backgroundTiles": 0
+      "backgroundTiles": 1
     },
     {
       "id": "ASSET_140",
@@ -4057,7 +4057,7 @@
     {
       "id": "ASSET_NEW_106",
       "paddedX": 16,
-      "paddedY": -10,
+      "paddedY": -9,
       "paddedWidth": 48,
       "paddedHeight": 32,
       "name": "TABLE_WOOD",

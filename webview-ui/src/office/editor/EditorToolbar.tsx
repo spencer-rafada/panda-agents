@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { EditTool, TileType } from '../types.js'
 import type { TileType as TileTypeVal, FloorColor } from '../types.js'
-import { getCatalogByCategory, buildDynamicCatalog, getActiveCategories } from '../layout/furnitureCatalog.js'
+import { getCatalogByCategory, getCatalogEntry, buildDynamicCatalog, getActiveCategories } from '../layout/furnitureCatalog.js'
 import type { FurnitureCategory, LoadedAssetData } from '../layout/furnitureCatalog.js'
 import { getCachedSprite } from '../sprites/spriteCache.js'
 import { getColorizedFloorSprite, getFloorPatternCount, hasFloorSprites } from '../floorTiles.js'
+import { getColorizedSprite } from '../colorize.js'
 
 const btnStyle: React.CSSProperties = {
   padding: '3px 8px',
@@ -45,9 +46,11 @@ interface EditorToolbarProps {
   selectedTileType: TileTypeVal
   selectedFurnitureType: string
   floorColor: FloorColor
+  furnitureColor: FloorColor
   onToolChange: (tool: EditTool) => void
   onTileTypeChange: (type: TileTypeVal) => void
   onFloorColorChange: (color: FloorColor) => void
+  onFurnitureColorChange: (color: FloorColor) => void
   onFurnitureTypeChange: (type: string) => void
   loadedAssets?: LoadedAssetData
 }
@@ -137,14 +140,17 @@ export function EditorToolbar({
   selectedTileType,
   selectedFurnitureType,
   floorColor,
+  furnitureColor,
   onToolChange,
   onTileTypeChange,
   onFloorColorChange,
+  onFurnitureColorChange,
   onFurnitureTypeChange,
   loadedAssets,
 }: EditorToolbarProps) {
   const [activeCategory, setActiveCategory] = useState<FurnitureCategory>('desks')
   const [showColor, setShowColor] = useState(false)
+  const [showFurnitureColor, setShowFurnitureColor] = useState(false)
 
   // Build dynamic catalog from loaded assets
   useEffect(() => {
@@ -173,6 +179,10 @@ export function EditorToolbar({
     onFloorColorChange({ ...floorColor, [key]: value })
   }, [floorColor, onFloorColorChange])
 
+  const handleFurnitureColorChange = useCallback((key: keyof FloorColor, value: number) => {
+    onFurnitureColorChange({ ...furnitureColor, [key]: value })
+  }, [furnitureColor, onFurnitureColorChange])
+
   const categoryItems = getCatalogByCategory(activeCategory)
 
   const patternCount = getFloorPatternCount()
@@ -182,7 +192,7 @@ export function EditorToolbar({
   const thumbSize = 36 // 2x for items
 
   const isFloorActive = activeTool === EditTool.TILE_PAINT || activeTool === EditTool.EYEDROPPER
-  const isFurnitureActive = activeTool === EditTool.FURNITURE_PLACE
+  const isFurnitureActive = activeTool === EditTool.FURNITURE_PLACE || activeTool === EditTool.FURNITURE_PICK
 
   return (
     <div
@@ -294,8 +304,8 @@ export function EditorToolbar({
       {/* Sub-panel: Furniture — stacked bottom-to-top via column-reverse */}
       {isFurnitureActive && (
         <div style={{ display: 'flex', flexDirection: 'column-reverse', gap: 4 }}>
-          {/* Category tabs — just above tool row */}
-          <div style={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+          {/* Category tabs + Pick — just above tool row */}
+          <div style={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
             {getActiveCategories().map((cat) => (
               <button
                 key={cat.id}
@@ -305,11 +315,59 @@ export function EditorToolbar({
                 {cat.label}
               </button>
             ))}
+            <div style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.15)', margin: '0 2px', flexShrink: 0 }} />
+            <button
+              style={activeTool === EditTool.FURNITURE_PICK ? activeBtnStyle : btnStyle}
+              onClick={() => onToolChange(EditTool.FURNITURE_PICK)}
+              title="Pick furniture type + color from placed item"
+            >
+              Pick
+            </button>
           </div>
+          {/* Furniture color controls (between tabs and carousel) */}
+          {(() => {
+            const selEntry = selectedFurnitureType ? getCatalogEntry(selectedFurnitureType) : undefined
+            if (!selEntry?.colorEditable) return null
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column-reverse', gap: 3 }}>
+                <button
+                  style={showFurnitureColor ? activeBtnStyle : btnStyle}
+                  onClick={() => setShowFurnitureColor((v) => !v)}
+                  title="Adjust furniture color"
+                >
+                  Color
+                </button>
+                {showFurnitureColor && (
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 3,
+                    padding: '4px 6px',
+                    background: 'rgba(20,20,36,0.8)',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    borderRadius: 3,
+                  }}>
+                    <ColorSlider label="H" value={furnitureColor.h} min={0} max={360} onChange={(v) => handleFurnitureColorChange('h', v)} />
+                    <ColorSlider label="S" value={furnitureColor.s} min={0} max={100} onChange={(v) => handleFurnitureColorChange('s', v)} />
+                    <ColorSlider label="B" value={furnitureColor.b} min={-100} max={100} onChange={(v) => handleFurnitureColorChange('b', v)} />
+                    <ColorSlider label="C" value={furnitureColor.c} min={-100} max={100} onChange={(v) => handleFurnitureColorChange('c', v)} />
+                  </div>
+                )}
+              </div>
+            )
+          })()}
           {/* Furniture items — at the top, single-row horizontal carousel at 2x */}
           <div style={{ display: 'flex', gap: 4, overflowX: 'auto', flexWrap: 'nowrap', paddingBottom: 2 }}>
             {categoryItems.map((entry) => {
-              const cached = getCachedSprite(entry.sprite, 2)
+              // Colorize thumbnail if this entry is colorEditable and currently selected
+              const displaySprite = (entry.colorEditable && selectedFurnitureType === entry.type)
+                ? getColorizedSprite(
+                    `thumb-${entry.type}-${furnitureColor.h}-${furnitureColor.s}-${furnitureColor.b}-${furnitureColor.c}`,
+                    entry.sprite,
+                    furnitureColor,
+                  )
+                : entry.sprite
+              const cached = getCachedSprite(displaySprite, 2)
               const isSelected = selectedFurnitureType === entry.type
               return (
                 <button

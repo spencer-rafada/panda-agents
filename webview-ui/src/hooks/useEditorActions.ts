@@ -22,6 +22,7 @@ export interface EditorActions {
   handleToolChange: (tool: EditToolType) => void
   handleTileTypeChange: (type: TileTypeVal) => void
   handleFloorColorChange: (color: FloorColor) => void
+  handleFurnitureColorChange: (color: FloorColor) => void
   handleFurnitureTypeChange: (type: string) => void // FurnitureType enum or asset ID
   handleDeleteSelected: () => void
   handleRotateSelected: () => void
@@ -108,6 +109,11 @@ export function useEditorActions(
 
   const handleFloorColorChange = useCallback((color: FloorColor) => {
     editorState.floorColor = color
+    setEditorTick((n) => n + 1)
+  }, [editorState])
+
+  const handleFurnitureColorChange = useCallback((color: FloorColor) => {
+    editorState.furnitureColor = color
     setEditorTick((n) => n + 1)
   }, [editorState])
 
@@ -236,11 +242,32 @@ export function useEditorActions(
         setEditorTick((n) => n + 1)
       } else if (canPlaceFurniture(layout, type, col, row)) {
         const uid = `f-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
-        const newLayout = placeFurniture(layout, { uid, type, col, row })
+        const entry = getCatalogEntry(type)
+        const item: import('../office/types.js').PlacedFurniture = { uid, type, col, row }
+        if (entry?.colorEditable) {
+          item.color = { ...editorState.furnitureColor }
+        }
+        const newLayout = placeFurniture(layout, item)
         if (newLayout !== layout) {
           applyEdit(newLayout)
         }
       }
+    } else if (editorState.activeTool === EditTool.FURNITURE_PICK) {
+      // Find furniture at clicked tile, copy its type + color
+      const hit = layout.furniture.find((f) => {
+        const entry = getCatalogEntry(f.type)
+        if (!entry) return false
+        return col >= f.col && col < f.col + entry.footprintW && row >= f.row && row < f.row + entry.footprintH
+      })
+      if (hit) {
+        editorState.selectedFurnitureType = hit.type
+        const entry = getCatalogEntry(hit.type)
+        if (entry?.colorEditable && hit.color) {
+          editorState.furnitureColor = { ...hit.color }
+        }
+        editorState.activeTool = EditTool.FURNITURE_PLACE
+      }
+      setEditorTick((n) => n + 1)
     } else if (editorState.activeTool === EditTool.EYEDROPPER) {
       const idx = row * layout.cols + col
       const tile = layout.tiles[idx]
@@ -280,6 +307,7 @@ export function useEditorActions(
     handleToolChange,
     handleTileTypeChange,
     handleFloorColorChange,
+    handleFurnitureColorChange,
     handleFurnitureTypeChange,
     handleDeleteSelected,
     handleRotateSelected,

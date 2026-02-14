@@ -30,7 +30,9 @@ webview-ui/src/               — React + TypeScript (Vite)
   office/
     types.ts                  — Constants (TILE_SIZE=16, MAP 20x11), interfaces, OfficeLayout, FloorColor
     toolUtils.ts              — STATUS_TO_TOOL mapping, extractToolName(), defaultZoom()
-    floorTiles.ts             — Floor sprite storage, colorize algorithm, cache
+    colorize.ts               — Shared HSL colorize module (floor + furniture tinting)
+    floorTiles.ts             — Floor sprite storage + colorized cache
+    wallTiles.ts              — Wall auto-tile: 16 bitmask sprites from walls.png
     sprites/
       spriteData.ts           — Pixel data: characters (6 palettes), furniture, tiles, bubbles
       spriteCache.ts          — SpriteData → offscreen canvas, per-zoom WeakMap cache, outline sprites
@@ -58,14 +60,16 @@ scripts/                      — 7-stage asset extraction pipeline
   3-vision-inspect.ts         — Claude vision auto-metadata
   4-review-metadata.html      — Browser UI for metadata review
   5-export-assets.ts          — Export PNGs + furniture-catalog.json
-  asset-manager.html          — Unified editor (Stage 2+4 combined), File System Access API for direct save
+  asset-manager.html          — Unified editor (Stage 2+4 combined), Save/Save As via File System Access API
+  generate-walls.js           — Generate walls.png (4×4 grid of 16×32 auto-tile pieces)
+  wall-tile-editor.html       — Browser UI for editing wall tile appearance
 ```
 
 ## Core Concepts
 
 **Vocabulary**: Terminal = VS Code terminal running Claude. Session = JSONL conversation file. Agent = webview character bound 1:1 to a terminal.
 
-**Extension ↔ Webview**: `postMessage` protocol. Key messages: `openClaude`, `agentCreated/Closed`, `focusAgent`, `agentToolStart/Done/Clear`, `agentStatus`, `existingAgents`, `layoutLoaded`, `furnitureAssetsLoaded`, `floorTilesLoaded`, `saveLayout`, `saveAgentSeats`.
+**Extension ↔ Webview**: `postMessage` protocol. Key messages: `openClaude`, `agentCreated/Closed`, `focusAgent`, `agentToolStart/Done/Clear`, `agentStatus`, `existingAgents`, `layoutLoaded`, `furnitureAssetsLoaded`, `floorTilesLoaded`, `wallTilesLoaded`, `saveLayout`, `saveAgentSeats`.
 
 **One-agent-per-terminal**: Each "+ Agent" click → new terminal (`claude --session-id <uuid>`) → immediate agent creation → 1s poll for `<uuid>.jsonl` → file watching starts.
 
@@ -97,15 +101,15 @@ JSONL transcripts at `~/.claude/projects/<project-hash>/<session-id>.jsonl`. Pro
 
 ## Layout Editor
 
-Toggle via "Layout" button. Tools: SELECT (default), Floor paint, Furniture place, Eyedropper.
+Toggle via "Layout" button. Tools: SELECT (default), Floor paint, Furniture place, Furniture pick (eyedropper for furniture type+color), Eyedropper (floor).
 
 **Floor**: 7 patterns from `floors.png` (grayscale 16×16), colorizable via HSBC sliders (Photoshop Colorize). Color baked per-tile on paint. Wall button. Eyedropper picks pattern+color.
 
-**Furniture**: Ghost preview (green/red validity). R key rotates. Drag-to-move in SELECT. Delete button (red X) + rotate button (blue arrow) on selected items.
+**Furniture**: Ghost preview (green/red validity). R key rotates. Drag-to-move in SELECT. Delete button (red X) + rotate button (blue arrow) on selected items. `colorEditable` items get HSBC color sliders; color stored per-item in `PlacedFurniture.color`. Pick tool copies type+color from placed item. Surface items preferred when clicking stacked furniture.
 
 **Undo/Redo**: 50-level, Ctrl+Z/Y. EditActionBar (top-center when dirty): Undo, Redo, Save, Reset.
 
-**Multi-stage Esc**: deselect catalog → close tool tab → deselect furniture → close editor.
+**Multi-stage Esc**: exit pick mode → deselect catalog → close tool tab → deselect furniture → close editor.
 
 **Layout model**: `{ version: 1, cols, rows, tiles: TileType[], furniture: PlacedFurniture[], tileColors?: FloorColor[] }`. Persisted via debounced saveLayout message.
 
@@ -119,9 +123,13 @@ Toggle via "Layout" button. Tools: SELECT (default), Floor paint, Furniture plac
 
 **Surface placement**: `canPlaceOnSurfaces?: boolean` on `FurnitureCatalogEntry` — items like laptops, monitors, mugs can overlap with all tiles of `isDesk` furniture. `canPlaceFurniture()` builds a desk-tile set and excludes it from collision checks for surface items. Z-sort fix: `layoutToFurnitureInstances()` pre-computes desk zY per tile; surface items get `zY = max(spriteBottom, deskZY + 0.5)` so they render in front of the desk. Set via asset-manager.html "Can Place On Surfaces" checkbox. Exported through `5-export-assets.ts` → `furniture-catalog.json`.
 
-**Floor tiles**: `floors.png` (112×16, 7 patterns). Colorize: grayscale → luminance → contrast → brightness → HSL. Cached by (pattern, h, s, b, c). Migration: old layouts auto-mapped to new patterns.
+**Colorize module**: Shared `colorize.ts` — Photoshop-style Colorize (grayscale → luminance → contrast → brightness → HSL). Used by floor tiles and colorEditable furniture. Generic cache keyed by arbitrary string.
 
-**Load order**: `floorTilesLoaded` → `furnitureAssetsLoaded` (catalog built synchronously) → `layoutLoaded`.
+**Floor tiles**: `floors.png` (112×16, 7 patterns). Cached by (pattern, h, s, b, c). Migration: old layouts auto-mapped to new patterns.
+
+**Wall tiles**: `walls.png` (64×128, 4×4 grid of 16×32 pieces). 4-bit auto-tile bitmask (N=1, E=2, S=4, W=8). Sprites extend 16px above tile (3D face). Loaded by extension → `wallTilesLoaded` message. `wallTiles.ts` computes bitmask at render time. Renderer draws walls in pass 2 after floor tiles. `generate-walls.js` creates the PNG; `wall-tile-editor.html` for visual editing.
+
+**Load order**: `floorTilesLoaded` → `wallTilesLoaded` → `furnitureAssetsLoaded` (catalog built synchronously) → `layoutLoaded`.
 
 ## Condensed Lessons
 

@@ -145,6 +145,81 @@ function pngToSpriteData(pngBuffer: Buffer, width: number, height: number): stri
   }
 }
 
+// ── Wall tile loading ────────────────────────────────────────
+
+export interface LoadedWallTiles {
+  /** 16 sprites indexed by bitmask (N=1,E=2,S=4,W=8), each 16×32 SpriteData */
+  sprites: string[][][]
+}
+
+/**
+ * Load wall tiles from walls.png (64×128, 4×4 grid of 16×32 pieces).
+ * Piece at bitmask M: col = M % 4, row = floor(M / 4).
+ */
+export async function loadWallTiles(
+  assetsRoot: string,
+): Promise<LoadedWallTiles | null> {
+  try {
+    const wallPath = path.join(assetsRoot, 'assets', 'walls.png')
+    if (!fs.existsSync(wallPath)) {
+      console.log('[AssetLoader] No walls.png found at:', wallPath)
+      return null
+    }
+
+    console.log('[AssetLoader] Loading wall tiles from:', wallPath)
+    const pngBuffer = fs.readFileSync(wallPath)
+    const png = PNG.sync.read(pngBuffer)
+
+    const PIECE_W = 16
+    const PIECE_H = 32
+    const GRID_COLS = 4
+
+    const sprites: string[][][] = []
+    for (let mask = 0; mask < 16; mask++) {
+      const ox = (mask % GRID_COLS) * PIECE_W
+      const oy = Math.floor(mask / GRID_COLS) * PIECE_H
+      const sprite: string[][] = []
+      for (let r = 0; r < PIECE_H; r++) {
+        const row: string[] = []
+        for (let c = 0; c < PIECE_W; c++) {
+          const idx = ((oy + r) * png.width + (ox + c)) * 4
+          const rv = png.data[idx]
+          const gv = png.data[idx + 1]
+          const bv = png.data[idx + 2]
+          const av = png.data[idx + 3]
+          if (av < 128) {
+            row.push('')
+          } else {
+            row.push(`#${rv.toString(16).padStart(2, '0')}${gv.toString(16).padStart(2, '0')}${bv.toString(16).padStart(2, '0')}`.toUpperCase())
+          }
+        }
+        sprite.push(row)
+      }
+      sprites.push(sprite)
+    }
+
+    console.log(`[AssetLoader] ✅ Loaded ${sprites.length} wall tile pieces`)
+    return { sprites }
+  } catch (err) {
+    console.error(`[AssetLoader] ❌ Error loading wall tiles: ${err instanceof Error ? err.message : err}`)
+    return null
+  }
+}
+
+/**
+ * Send wall tiles to webview
+ */
+export function sendWallTilesToWebview(
+  webview: vscode.Webview,
+  wallTiles: LoadedWallTiles,
+): void {
+  webview.postMessage({
+    type: 'wallTilesLoaded',
+    sprites: wallTiles.sprites,
+  })
+  console.log(`📤 Sent ${wallTiles.sprites.length} wall tile pieces to webview`)
+}
+
 export interface LoadedFloorTiles {
   sprites: string[][][] // 7 sprites, each 16x16 SpriteData
 }

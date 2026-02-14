@@ -33,6 +33,7 @@ export interface LoadedAssetData {
     orientation?: string  // 'front' | 'back' | 'left' | 'right'
     canPlaceOnSurfaces?: boolean
     backgroundTiles?: number
+    colorEditable?: boolean
   }>
   sprites: Record<string, SpriteData>
 }
@@ -120,6 +121,7 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
       category: asset.category as FurnitureCategory,
       ...(asset.canPlaceOnSurfaces ? { canPlaceOnSurfaces: true } : {}),
       ...(asset.backgroundTiles ? { backgroundTiles: asset.backgroundTiles } : {}),
+      ...(asset.colorEditable ? { colorEditable: true } : {}),
     }
   }).filter((e): e is CatalogEntryWithCategory => e !== null)
 

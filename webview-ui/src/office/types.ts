@@ -107,6 +107,7 @@ export type FurnitureType = (typeof FurnitureType)[keyof typeof FurnitureType]
 export const EditTool = {
   TILE_PAINT: 'tile_paint',
   FURNITURE_PLACE: 'furniture_place',
+  FURNITURE_PICK: 'furniture_pick',
   SELECT: 'select',
   EYEDROPPER: 'eyedropper',
 } as const
@@ -124,6 +125,8 @@ export interface FurnitureCatalogEntry {
   canPlaceOnSurfaces?: boolean
   /** Number of tile rows from the top of the footprint that are "background" (allow placement, still block walking). Default 0. */
   backgroundTiles?: number
+  /** Whether this item supports color editing via HSBC sliders */
+  colorEditable?: boolean
 }
 
 export interface PlacedFurniture {
@@ -131,6 +134,8 @@ export interface PlacedFurniture {
   type: string // FurnitureType enum or asset ID
   col: number
   row: number
+  /** Optional color override for colorEditable furniture */
+  color?: FloorColor
 }
 
 export interface OfficeLayout {

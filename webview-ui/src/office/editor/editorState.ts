@@ -10,6 +10,9 @@ export class EditorState {
   // Floor color settings (applied to new tiles when painting)
   floorColor: FloorColor = { h: 35, s: 30, b: 15, c: 0 }
 
+  // Furniture color settings (applied to new colorEditable furniture when placing)
+  furnitureColor: FloorColor = { h: 0, s: 50, b: 0, c: 0 }
+
   // Ghost preview position
   ghostCol = -1
   ghostRow = -1

@@ -271,9 +271,11 @@ function App() {
           selectedTileType={editorState.selectedTileType}
           selectedFurnitureType={editorState.selectedFurnitureType}
           floorColor={editorState.floorColor}
+          furnitureColor={editorState.furnitureColor}
           onToolChange={editor.handleToolChange}
           onTileTypeChange={editor.handleTileTypeChange}
           onFloorColorChange={editor.handleFloorColorChange}
+          onFurnitureColorChange={editor.handleFurnitureColorChange}
           onFurnitureTypeChange={editor.handleFurnitureTypeChange}
           loadedAssets={loadedAssets}
         />
