@@ -31,6 +31,8 @@ This is the source code for the free [Pixel Agents extension for VS Code](https:
 
 ## Getting Started
 
+If you just want to use Pixel Agents, the easiest way is to download the [VS Code extension](https://marketplace.visualstudio.com/items?itemName=pablodelucca.pixel-agents). If you want to play with the code, develop, or contribute, then:
+
 ### Install from source
 
 ```bash
@@ -65,9 +67,9 @@ The grid is expandable up to 64×64 tiles. Click the ghost border outside the cu
 
 ### Office Assets
 
-The office tileset used in this project is **[Office Interior Tileset (16x16)](https://donarg.itch.io/officetileset)** by **Donarg**, available on itch.io for **$2 USD**.
+The office tileset used in this project and available via the extension is **[Office Interior Tileset (16x16)](https://donarg.itch.io/officetileset)** by **Donarg**, available on itch.io for **$2 USD**.
 
-This is the only part of the project that is not freely available. The tileset is not included in this repository due to its license. To use Pixel Agents with the full set of office furniture and decorations, purchase the tileset and run the asset import pipeline:
+This is the only part of the project that is not freely available. The tileset is not included in this repository due to its license. To use Pixel Agents locally with the full set of office furniture and decorations, purchase the tileset and run the asset import pipeline:
 
 ```bash
 npm run import-tileset
