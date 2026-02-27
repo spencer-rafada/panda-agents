@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import type { AgentState } from './types.js';
 import { cancelWaitingTimer, cancelPermissionTimer, clearAgentActivity } from './timerManager.js';
-import { processTranscriptLine } from './transcriptParser.js';
+import { getProvider, inferProviderFromPath } from './providers/registry.js';
 import { FILE_WATCHER_POLL_INTERVAL_MS, PROJECT_SCAN_INTERVAL_MS } from './constants.js';
 
 export function startFileWatching(
@@ -70,7 +70,8 @@ export function readNewLines(
 
 		for (const line of lines) {
 			if (!line.trim()) continue;
-			processTranscriptLine(agentId, line, agents, waitingTimers, permissionTimers, webview);
+			const provider = getProvider(agent.provider);
+			provider.processLine(agentId, line, agent, { agents, waitingTimers, permissionTimers, webview });
 		}
 	} catch (e) {
 		console.log(`[Pixel Agents] Read error for agent ${agentId}: ${e}`);
@@ -134,6 +135,22 @@ function scanForNewJsonlFiles(
 	for (const file of files) {
 		if (!knownJsonlFiles.has(file)) {
 			knownJsonlFiles.add(file);
+
+			// Check if there's a recent agent waiting for its JSONL file (Codex case: empty jsonlFile)
+			let assignedToWaiting = false;
+			for (const agent of agents.values()) {
+				if (agent.jsonlFile === '' && agent.projectDir === projectDir) {
+					console.log(`[Pixel Agents] New JSONL detected: ${path.basename(file)}, assigning to waiting agent ${agent.id}`);
+					agent.jsonlFile = file;
+					persistAgents();
+					startFileWatching(agent.id, file, agents, fileWatchers, pollingTimers, waitingTimers, permissionTimers, webview);
+					readNewLines(agent.id, agents, waitingTimers, permissionTimers, webview);
+					assignedToWaiting = true;
+					break;
+				}
+			}
+			if (assignedToWaiting) continue;
+
 			if (activeAgentIdRef.current !== null) {
 				// Active agent focused → /clear reassignment
 				console.log(`[Pixel Agents] New JSONL detected: ${path.basename(file)}, reassigning to agent ${activeAgentIdRef.current}`);
@@ -182,8 +199,10 @@ function adoptTerminalForFile(
 	persistAgents: () => void,
 ): void {
 	const id = nextAgentIdRef.current++;
+	const providerId = inferProviderFromPath(jsonlFile);
 	const agent: AgentState = {
 		id,
+		provider: providerId,
 		terminalRef: terminal,
 		projectDir,
 		jsonlFile,

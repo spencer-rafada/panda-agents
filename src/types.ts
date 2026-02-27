@@ -1,8 +1,10 @@
 import type * as vscode from 'vscode';
+import type { ProviderId } from './providers/providerTypes.js';
 
 export interface AgentState {
 	id: number;
-	terminalRef: vscode.Terminal;
+	provider: ProviderId;
+	terminalRef: vscode.Terminal | null;
 	projectDir: string;
 	jsonlFile: string;
 	fileOffset: number;
@@ -19,6 +21,7 @@ export interface AgentState {
 
 export interface PersistedAgent {
 	id: number;
+	provider?: ProviderId;
 	terminalName: string;
 	jsonlFile: string;
 	projectDir: string;

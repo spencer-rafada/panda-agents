@@ -17,6 +17,9 @@ import { loadFurnitureAssets, sendAssetsToWebview, loadFloorTiles, sendFloorTile
 import { WORKSPACE_KEY_AGENT_SEATS, GLOBAL_KEY_SOUND_ENABLED } from './constants.js';
 import { writeLayoutToFile, readLayoutFromFile, watchLayoutFile } from './layoutPersistence.js';
 import type { LayoutWatcher } from './layoutPersistence.js';
+import type { ProviderId } from './providers/providerTypes.js';
+import { PROVIDER_IDS } from './providers/providerTypes.js';
+import { getProvider } from './providers/registry.js';
 
 export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
 	nextAgentId = { current: 1 };
@@ -62,8 +65,26 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
 		webviewView.webview.html = getWebviewContent(webviewView.webview, this.extensionUri);
 
 		webviewView.webview.onDidReceiveMessage(async (message) => {
-			if (message.type === 'openClaude') {
+			if (message.type === 'openClaude' || message.type === 'openAgent') {
+				const providerId: ProviderId = (message.type === 'openAgent' && message.provider)
+					? message.provider as ProviderId
+					: PROVIDER_IDS.CLAUDE;
+
+				// Run provider setup if needed (e.g. Cursor hooks)
+				const provider = getProvider(providerId);
+				if (provider.setup) {
+					const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+					if (cwd) {
+						const ok = await provider.setup(cwd);
+						if (!ok) {
+							vscode.window.showErrorMessage(`Panda Agents: Failed to set up ${provider.displayName} provider.`);
+							return;
+						}
+					}
+				}
+
 				launchNewTerminal(
+					providerId,
 					this.nextAgentId, this.nextTerminalIndex,
 					this.agents, this.activeAgentId, this.knownJsonlFiles,
 					this.fileWatchers, this.pollingTimers, this.waitingTimers, this.permissionTimers,
@@ -72,13 +93,21 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
 				);
 			} else if (message.type === 'focusAgent') {
 				const agent = this.agents.get(message.id);
-				if (agent) {
+				if (agent?.terminalRef) {
 					agent.terminalRef.show();
 				}
 			} else if (message.type === 'closeAgent') {
 				const agent = this.agents.get(message.id);
-				if (agent) {
+				if (agent?.terminalRef) {
 					agent.terminalRef.dispose();
+				} else if (agent) {
+					// Terminal-less agent (Cursor): remove directly
+					removeAgent(
+						message.id, this.agents,
+						this.fileWatchers, this.pollingTimers, this.waitingTimers, this.permissionTimers,
+						this.jsonlPollTimers, this.persistAgents,
+					);
+					webviewView.webview.postMessage({ type: 'agentClosed', id: message.id });
 				}
 			} else if (message.type === 'saveAgentSeats') {
 				// Store seat assignments in a separate key (never touched by persistAgents)

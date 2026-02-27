@@ -1,21 +1,23 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import * as vscode from 'vscode';
 import type { AgentState, PersistedAgent } from './types.js';
+import type { ProviderId } from './providers/providerTypes.js';
+import { PROVIDER_IDS } from './providers/providerTypes.js';
+import { getProvider } from './providers/registry.js';
 import { cancelWaitingTimer, cancelPermissionTimer } from './timerManager.js';
 import { startFileWatching, readNewLines, ensureProjectScan } from './fileWatcher.js';
-import { JSONL_POLL_INTERVAL_MS, TERMINAL_NAME_PREFIX, WORKSPACE_KEY_AGENTS, WORKSPACE_KEY_AGENT_SEATS } from './constants.js';
+import { JSONL_POLL_INTERVAL_MS, WORKSPACE_KEY_AGENTS, WORKSPACE_KEY_AGENT_SEATS } from './constants.js';
 import { migrateAndLoadLayout } from './layoutPersistence.js';
 
+/** Compat shim — delegates to Claude provider */
 export function getProjectDirPath(cwd?: string): string | null {
-	const workspacePath = cwd || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-	if (!workspacePath) return null;
-	const dirName = workspacePath.replace(/[:\\/]/g, '-');
-	return path.join(os.homedir(), '.claude', 'projects', dirName);
+	const provider = getProvider(PROVIDER_IDS.CLAUDE);
+	return provider.getProjectDir(cwd);
 }
 
 export function launchNewTerminal(
+	providerId: ProviderId,
 	nextAgentIdRef: { current: number },
 	nextTerminalIndexRef: { current: number },
 	agents: Map<number, AgentState>,
@@ -30,34 +32,45 @@ export function launchNewTerminal(
 	webview: vscode.Webview | undefined,
 	persistAgents: () => void,
 ): void {
+	const provider = getProvider(providerId);
 	const idx = nextTerminalIndexRef.current++;
 	const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-	const terminal = vscode.window.createTerminal({
-		name: `${TERMINAL_NAME_PREFIX} #${idx}`,
-		cwd,
-	});
-	terminal.show();
 
-	const sessionId = crypto.randomUUID();
-	terminal.sendText(`claude --session-id ${sessionId}`);
+	let terminal: vscode.Terminal | null = null;
+	if (provider.needsTerminal) {
+		terminal = vscode.window.createTerminal({
+			name: `${provider.terminalNamePrefix} #${idx}`,
+			cwd,
+		});
+		terminal.show();
+	}
 
-	const projectDir = getProjectDirPath(cwd);
-	if (!projectDir) {
-		console.log(`[Pixel Agents] No project dir, cannot track agent`);
+	if (!cwd) {
+		console.log(`[Pixel Agents] No workspace, cannot track agent`);
 		return;
 	}
 
+	const result = provider.launchTerminal(terminal, cwd);
+	if (!result) {
+		console.log(`[Pixel Agents] Provider ${provider.id} returned no project dir`);
+		return;
+	}
+
+	const { projectDir, jsonlFile } = result;
+
 	// Pre-register expected JSONL file so project scan won't treat it as a /clear file
-	const expectedFile = path.join(projectDir, `${sessionId}.jsonl`);
-	knownJsonlFiles.add(expectedFile);
+	if (jsonlFile) {
+		knownJsonlFiles.add(jsonlFile);
+	}
 
 	// Create agent immediately (before JSONL file exists)
 	const id = nextAgentIdRef.current++;
 	const agent: AgentState = {
 		id,
+		provider: providerId,
 		terminalRef: terminal,
 		projectDir,
-		jsonlFile: expectedFile,
+		jsonlFile,
 		fileOffset: 0,
 		lineBuffer: '',
 		activeToolIds: new Set(),
@@ -73,28 +86,33 @@ export function launchNewTerminal(
 	agents.set(id, agent);
 	activeAgentIdRef.current = id;
 	persistAgents();
-	console.log(`[Pixel Agents] Agent ${id}: created for terminal ${terminal.name}`);
+	const termName = terminal ? terminal.name : provider.displayName;
+	console.log(`[Pixel Agents] Agent ${id}: created for ${termName} (provider: ${providerId})`);
 	webview?.postMessage({ type: 'agentCreated', id });
 
-	ensureProjectScan(
-		projectDir, knownJsonlFiles, projectScanTimerRef, activeAgentIdRef,
-		nextAgentIdRef, agents, fileWatchers, pollingTimers, waitingTimers, permissionTimers,
-		webview, persistAgents,
-	);
+	if (provider.usesProjectScan) {
+		ensureProjectScan(
+			projectDir, knownJsonlFiles, projectScanTimerRef, activeAgentIdRef,
+			nextAgentIdRef, agents, fileWatchers, pollingTimers, waitingTimers, permissionTimers,
+			webview, persistAgents,
+		);
+	}
 
-	// Poll for the specific JSONL file to appear
-	const pollTimer = setInterval(() => {
-		try {
-			if (fs.existsSync(agent.jsonlFile)) {
-				console.log(`[Pixel Agents] Agent ${id}: found JSONL file ${path.basename(agent.jsonlFile)}`);
-				clearInterval(pollTimer);
-				jsonlPollTimers.delete(id);
-				startFileWatching(id, agent.jsonlFile, agents, fileWatchers, pollingTimers, waitingTimers, permissionTimers, webview);
-				readNewLines(id, agents, waitingTimers, permissionTimers, webview);
-			}
-		} catch { /* file may not exist yet */ }
-	}, JSONL_POLL_INTERVAL_MS);
-	jsonlPollTimers.set(id, pollTimer);
+	// Poll for the specific JSONL file to appear (skip if file path is empty — discovered by scan)
+	if (jsonlFile) {
+		const pollTimer = setInterval(() => {
+			try {
+				if (fs.existsSync(agent.jsonlFile)) {
+					console.log(`[Pixel Agents] Agent ${id}: found JSONL file ${path.basename(agent.jsonlFile)}`);
+					clearInterval(pollTimer);
+					jsonlPollTimers.delete(id);
+					startFileWatching(id, agent.jsonlFile, agents, fileWatchers, pollingTimers, waitingTimers, permissionTimers, webview);
+					readNewLines(id, agents, waitingTimers, permissionTimers, webview);
+				}
+			} catch { /* file may not exist yet */ }
+		}, JSONL_POLL_INTERVAL_MS);
+		jsonlPollTimers.set(id, pollTimer);
+	}
 }
 
 export function removeAgent(
@@ -139,7 +157,8 @@ export function persistAgents(
 	for (const agent of agents.values()) {
 		persisted.push({
 			id: agent.id,
-			terminalName: agent.terminalRef.name,
+			provider: agent.provider,
+			terminalName: agent.terminalRef?.name || agent.provider,
 			jsonlFile: agent.jsonlFile,
 			projectDir: agent.projectDir,
 		});
@@ -172,11 +191,20 @@ export function restoreAgents(
 	let restoredProjectDir: string | null = null;
 
 	for (const p of persisted) {
-		const terminal = liveTerminals.find(t => t.name === p.terminalName);
-		if (!terminal) continue;
+		const providerId = p.provider || PROVIDER_IDS.CLAUDE;
+		const provider = getProvider(providerId);
+
+		// Terminal-less providers (Cursor) don't need a live terminal to restore
+		let terminal: vscode.Terminal | null = null;
+		if (provider.needsTerminal) {
+			const found = liveTerminals.find(t => t.name === p.terminalName);
+			if (!found) continue;
+			terminal = found;
+		}
 
 		const agent: AgentState = {
 			id: p.id,
+			provider: providerId,
 			terminalRef: terminal,
 			projectDir: p.projectDir,
 			jsonlFile: p.jsonlFile,
